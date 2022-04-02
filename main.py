@@ -14,7 +14,7 @@ from PIL import Image
 import random
 
 # set verbose mode to increase output (messy)
-verbose_mode = False
+verbose_mode = True
 
 if os.path.exists("./.env"):
     # load env variables
@@ -40,24 +40,31 @@ ENV_C_START='["0"]\'"""
 
 # map of colors for pixels you can place
 color_map = {
+    "#BE0039": 1,  # put color here
     "#FF4500": 2,  # bright red
     "#FFA800": 3,  # orange
     "#FFD635": 4,  # yellow
     "#00A368": 6,  # darker green
+    "#00CC78": 7,  # put color here
     "#7EED56": 8,  # lighter green
+    "#00756F": 9,  # put color here
+    "#009EAA": 10,  # put color here
     "#2450A4": 12,  # darkest blue
     "#3690EA": 13,  # medium normal blue
     "#51E9F4": 14,  # cyan
+    "#493AC1": 15,  # put color here
+    "#6A5CFF": 16,  # put color here
     "#811E9F": 18,  # darkest purple
     "#B44AC0": 19,  # normal purple
+    "#FF3881": 22,  # put color here
     "#FF99AA": 23,  # pink
+    "#6D482F": 24,  # put color here
     "#9C6926": 25,  # brown
     "#000000": 27,  # black
     "#898D90": 29,  # grey
     "#D4D7D9": 30,  # light grey
     "#FFFFFF": 31,  # white
 }
-
 # map of pixel color ids to verbose name (for debugging)
 name_map = {
     2: "Bright Red",
@@ -156,6 +163,7 @@ def set_pixel_and_check_ratelimit(
     # If we don't get data, it means we've been rate limited.
     # If we do, a pixel has been successfully placed.
     if response.json()["data"] == None:
+        print(response.json()["errors"][0])
         waitTime = math.floor(
             response.json()["errors"][0]["extensions"]["nextAvailablePixelTs"]
         )
@@ -240,27 +248,73 @@ def get_board(access_token_in):
         )
     )
 
+    ws.send(
+        json.dumps(
+            {
+                "id": "3",
+                "type": "start",
+                "payload": {
+                    "variables": {
+                        "input": {
+                            "channel": {
+                                "teamOwner": "AFD2022",
+                                "category": "CANVAS",
+                                "tag": "1",
+                            }
+                        }
+                    },
+                    "extensions": {},
+                    "operationName": "replace",
+                    "query": "subscription replace($input: SubscribeInput!) {\n  subscribe(input: $input) {\n    id\n    ... on BasicMessage {\n      data {\n        __typename\n        ... on FullFrameMessageData {\n          __typename\n          name\n          timestamp\n        }\n        ... on DiffFrameMessageData {\n          __typename\n          name\n          currentTimestamp\n          previousTimestamp\n        }\n      }\n      __typename\n    }\n    __typename\n  }\n}\n",
+                },
+            }
+        )
+    )
+
     file = ""
-    while True:
+    file2 = ""
+    got_file1 = False
+    got_file2 = False
+    while not (got_file1 and got_file2):
         temp = json.loads(ws.recv())
-        if temp["type"] == "data":
+        if temp["type"] == "data" and temp["id"] == "2":
             msg = temp["payload"]["data"]["subscribe"]
             if msg["data"]["__typename"] == "FullFrameMessageData":
                 file = msg["data"]["name"]
-                break
-
-    ws.close()
+                got_file1 = True
+        elif temp["type"] == "data" and temp["id"] == "3":
+            msg = temp["payload"]["data"]["subscribe"]
+            if msg["data"]["__typename"] == "FullFrameMessageData":
+                file2 = msg["data"]["name"]
+                got_file2 = True
 
     boardimg = BytesIO(requests.get(file, stream=True).content)
+    boardimg2 = BytesIO(requests.get(file2, stream=True).content)
     print("Got image:", file)
 
-    return boardimg
+    return [boardimg, boardimg2]
 
 
 def get_unset_pixel(boardimg, x, y):
     pixel_x_start = int(os.getenv("ENV_DRAW_X_START"))
     pixel_y_start = int(os.getenv("ENV_DRAW_Y_START"))
-    pix2 = Image.open(boardimg).convert("RGB").load()
+    img1 = Image.open(boardimg[0]).convert("RGB")
+    img2 = Image.open(boardimg[1]).convert("RGB")
+    images = [img1, img2]
+    widths, heights = zip(*(i.size for i in images))
+
+    total_width = sum(widths)
+    max_height = max(heights)
+
+    new_im = Image.new('RGB', (total_width, max_height))
+
+    x_offset = 0
+    for im in images:
+        new_im.paste(im, (x_offset,0))
+        x_offset += im.size[0]
+    pix2 = new_im.load()
+    #Image.open(boardimg).convert("RGB").show()
+    #print("pix 2 " + str(Image.open(boardimg).convert("RGB").size))
     num_loops = 0
     while True:
         x += 1
@@ -337,7 +391,7 @@ def load_image():
 def task(credentials_index):
     # whether image should keep drawing itself
     repeat_forever = True
-
+    auto_determine_start = False
     while True:
         # try:
         # global variables for script
@@ -502,9 +556,10 @@ def task(credentials_index):
                 # draw the pixel onto r/place
                 last_time_placed_pixel = set_pixel_and_check_ratelimit(
                     access_tokens[credentials_index],
-                    pixel_x_start + current_r,
+                    (pixel_x_start + current_r)%1000,
                     pixel_y_start + current_c,
                     pixel_color_index,
+                    math.floor(int(pixel_x_start + current_r)/int(1000))
                 )
 
                 current_r += 1
