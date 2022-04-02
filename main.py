@@ -315,6 +315,7 @@ def get_unset_pixel(boardimg, x, y):
     pix2 = new_im.load()
     #Image.open(boardimg).convert("RGB").show()
     #print("pix 2 " + str(Image.open(boardimg).convert("RGB").size))
+    print("x " + str(x) + " y " + str(y))
     num_loops = 0
     while True:
         x += 1
@@ -326,6 +327,7 @@ def get_unset_pixel(boardimg, x, y):
         if y >= image_height:
             if num_loops > 1:
                 target_rgb = pix[0, 0]
+                print(target_rgb)
                 new_rgb = closest_color(target_rgb, rgb_colors_array)
                 return 0, 0, new_rgb
             y = 0
@@ -379,19 +381,20 @@ def load_image():
     global image_height
     # read and load the image to draw and get its dimensions
     image_path = os.path.join(os.path.abspath(os.getcwd()), "image.jpg")
-    im = Image.open(image_path)
+    im = Image.open(image_path).convert("RGB")
     pix = im.load()
     print(
         "image size: ", im.size
     )  # Get the width and height of the image for iterating over
     image_width, image_height = im.size
+    return im.size
 
 
 # task to draw the input image
-def task(credentials_index):
+def task(credentials_index, size):
     # whether image should keep drawing itself
     repeat_forever = True
-    auto_determine_start = False
+    auto_determine_start = True
     while True:
         # try:
         # global variables for script
@@ -407,9 +410,14 @@ def task(credentials_index):
         pixel_y_start = int(os.getenv("ENV_DRAW_Y_START"))
 
         try:
-            # current pixel row and pixel column being drawn
-            current_r = int(json.loads(os.getenv("ENV_R_START"))[credentials_index])
-            current_c = int(json.loads(os.getenv("ENV_C_START"))[credentials_index])
+            if auto_determine_start:
+                # every account draws a pixel, left to right, top to bottom, and this continues
+                current_r = math.floor(credentials_index / size[0])
+                current_c = credentials_index % size[0]
+            else:
+                # current pixel row and pixel column being drawn
+                current_r = int(json.loads(os.getenv("ENV_R_START"))[credentials_index])
+                current_c = int(json.loads(os.getenv("ENV_C_START"))[credentials_index])
         except IndexError:
             print(
                 "Array length error: are you sure you have an ENV_R_START and ENV_C_START item for every account?\n",
@@ -594,7 +602,7 @@ def task(credentials_index):
 init_rgb_colors_array()
 
 # load the pixels for the input image
-load_image()
+size = load_image()
 
 # get number of concurrent threads to start
 num_credentials = len(json.loads(os.getenv("ENV_PLACE_USERNAME")))
@@ -610,6 +618,6 @@ for i in range(num_credentials):
     # run the image drawing task
     access_tokens.append(None)
     access_token_expires_at_timestamp.append(math.floor(time.time()))
-    thread1 = threading.Thread(target=task, args=[i])
+    thread1 = threading.Thread(target=task, args=[i,size])
     thread1.start()
     time.sleep(delay_between_launches_seconds)
